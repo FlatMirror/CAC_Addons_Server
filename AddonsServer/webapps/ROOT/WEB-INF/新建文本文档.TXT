@@ -1,0 +1,76 @@
+#!/bin/bash
+#第一个参数是类型，第二个参数是路径,第三个参数是标识ID
+WKD=/root/AppServer/compiler
+WKSPC=$WKD/workspace/$3"-workspace"
+OTPT=$WKD/output/$3"-output"
+mkdir $WKSPC
+mkdir $OTPT
+
+case $1 in
+
+c) gcc -x c -o $WKSPC/$3".asm" $2 > $OTPT/$3"-errout" 2>&1
+   if [ ! -s $OTPT/$3"-errout" ]
+   	then
+   	rm $OTPT/$3"-errout"
+   else
+   	rm -rf $WKSPC
+   	exit 1
+   fi
+   docker run -v $WKSPC:/tmp -dim 100M --name=$3"-container" ubuntu /tmp/$3".asm"
+;;
+
+cpp) g++ -x c++ -o $WKSPC/$3".asm" $2 > $OTPT/$3"-errout" 2>&1
+     if [ ! -s $OTPT/$3"-errout" ]
+   	then
+   	rm $OTPT/$3"-errout"
+     else
+   	rm -rf $WKSPC
+   	exit 1
+     fi
+     docker run -v $WKSPC:/tmp -dim 100M --name=$3"-container" ubuntu /tmp/$3".asm"
+;;
+
+#不要使用javac编译后再运行，会找不到主要的类，类名也会违规
+java) cp $2 $WKSPC
+      filename=$(ls $WKSPC);
+      docker run -v $WKSPC:/tmp -dim 100M --name=$3"-container" mdsol/java11-jre java /tmp/$filename
+;;
+
+py) cp $2 $WKSPC
+    filename=$(ls $WKSPC);
+    docker run -v $WKSPC:/tmp -dim 100M --name=$3"-container" daocloud.io/library/python:3.6.3-stretch python3 /tmp/$filename
+;;
+
+*) exit 2
+;;
+esac
+
+echo "检查容器状态"
+   doneFlag=$(docker ps -a -f status=exited | grep " "$3"-container")
+echo "检查完，已完成将有输出"
+   n=0
+   while [ -z "$doneFlag" ]
+	do
+	sleep 1
+	let "n+=1"
+echo "第"$n"秒执行"
+	if [ $n == 10 ]
+		then
+		break
+	fi
+ 	doneFlag=$(docker ps -a -f status=exited | grep " "$3"-container")
+	done
+echo "关闭容器"
+   if [ -z "$(docker ps -a -f status=exited | grep " "$3"-container")" ]
+   	then
+   	docker kill $3"-container"
+   fi
+echo "写入输出文件，包括异常"
+   docker logs $3"-container" 1> $OTPT/$3"-out" 2>> $OTPT/$3"-errout"
+      if [ ! -s $OTPT/$3"-errout" ]
+	then
+   	rm $OTPT/$3"-errout"
+      fi
+echo "移除容器"
+   docker rm $3"-container"
+   rm -rf $WKSPC
